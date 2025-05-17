@@ -371,9 +371,9 @@ const IncidentTrackingSystem = () => {
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(incident.status)}`}>
                                   {incident.status}
                                 </span>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                {/* <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
                                   {incident.issue_type || 'Issue'}
-                                </span>
+                                </span> */}
                                 <span className="text-xs text-gray-500 ml-1">
                                   <Calendar className="inline h-3 w-3 mr-1" />{incident.created_at.substring(0, 10)}
                                 </span>

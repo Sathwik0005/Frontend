@@ -16,6 +16,7 @@ import {
   selectActiveServiceDomain,
   selectActiveServiceType,
 } from "../../store/Slices/serviceDomainSlice";
+import { format } from "libphonenumber-js";
 
 export default function CreateIssue() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -253,8 +254,6 @@ export default function CreateIssue() {
 
       // Refresh messages to ensure we have the latest data
       fetchMessages(formData.number);
-
-      toast.success("Message and attachments sent successfully");
     } catch (error) {
       console.error("Error sending message:", error);
       toast.error("Failed to send message and attachments");
@@ -395,7 +394,6 @@ export default function CreateIssue() {
 
       // Clear the input field
       setNewNote("");
-      toast.success("Note added successfully");
 
       // Refresh the notes to ensure we have the latest data
       fetchTicketNotes(formData.number);
@@ -428,7 +426,6 @@ export default function CreateIssue() {
           resolvedDate: new Date().toLocaleString(),
         });
 
-        toast.success("Incident resolved successfully");
         setIsLoading(false);
 
         // Add to activity log
@@ -523,6 +520,7 @@ export default function CreateIssue() {
           axiosInstance.get("project/details/", authHeaders),
           axiosInstance.get("org/autoAssignee/", authHeaders),
         ]);
+        console.log(projectDetailsResponse);
         setSolutionGroupList(subGroupsList.data);
         setOrganizationsList(orgList.data);
         setActiveUsersList(activeUsersList.data);
@@ -530,14 +528,12 @@ export default function CreateIssue() {
         setImpactList(choicesList.data.impact_choices);
         setContactModeList(choicesList.data.contact_mode_choices);
         setPriorityList(priorityList.data);
-        console.log("Priorities List", priorityList);
         setUsersListWithOrganisations(usersListWithOrganisations.data);
-        console.log("Solution Grps", subGroupsList.data);
 
         // Set Low priority as default
         if (priorityList.data) {
           const priorityMinorChoice = priorityList.data.find(
-            (choice) => choice.urgency_name === "Trivial"
+            (choice) => choice.urgency_name === "Low"
           );
           if (priorityMinorChoice) {
             setFormData((prev) => ({
@@ -633,8 +629,17 @@ export default function CreateIssue() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+
+    const isHtmlEmpty = (html) => {
+      const text = html.replace(/<(.|\n)*?>/g, "").trim();
+      return text === "";
+    };
+
+    const sanitizedValue =
+      name === "description" && isHtmlEmpty(value) ? "" : value;
+
     setFormData((prev) => {
-      const updatedData = { ...prev, [name]: value };
+      const updatedData = { ...prev, [name]: sanitizedValue };
 
       // If requestor changed, update available projects
       if (name === "requestor") {
@@ -744,49 +749,31 @@ export default function CreateIssue() {
   ]);
 
   const requiredFields = [
-    "serviceDomain",
-    "serviceType",
+    "requestor",
+    "impact",
+    "priority",
     "summary",
     "description",
-    "impact",
-    "supportTeam",
-    "project",
-    "product",
-    "email",
-    "contactMode",
-    "solutionGroup",
-    "assignee",
-    "priority",
-    "developerOrganization",
-    "requestor",
-    "customerCountry",
   ];
 
   const validateForm = () => {
-    const errors = {};
-    requiredFields.forEach((field) => {
-      if (!formData[field]) {
-        errors[field] = `${field
-          .replace(/([A-Z])/g, " $1")
-          .trim()} is required`;
-      }
-    });
-    if (
-      !formData.description ||
-      formData.description.replace(/<(.|\n)*?>/g, "").trim() === ""
-    ) {
-      errors.description = "Description is required";
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    const newErrors = {};
+    if (!formData.requestor.trim()) newErrors.title = "Requestor is required";
+    if (!formData.priority) newErrors.priority = "Priority is required";
+    if (!formData.impact) newErrors.impact = "Impact is required";
+    if (!formData.summary.trim()) newErrors.summary = "Summary is required";
+    if (!formData.description.trim())
+      newErrors.description = "Description is required";
+    setFormErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // if (!validateForm()) {
-    //   toast.error("Please fill in all required fields.");
-    //   return;
-    // }
+    if (!validateForm()) {
+      // toast.error("Please fill in all required fields.");
+      return;
+    }
 
     setIsLoading(true);
     const accessToken = localStorage.getItem("access_token");
@@ -802,8 +789,9 @@ export default function CreateIssue() {
       // setTimeout(() => {
       // Reset form
       setFormData((prev) => ({
+        ...prev,
         number: "", // Or fetch new ticket ID if needed
-        requestor: userProfile?.first_name || "",
+        requestor: userProfile?.username || "",
         customerCountry: "india",
         supportOrgName: "",
         assignee: "",
@@ -828,7 +816,6 @@ export default function CreateIssue() {
       setNewMessage("");
       setExpandEditor(false);
       setFormErrors({});
-      window.location.reload();
     } catch (error) {
       console.log("Ticket Not Creating", error);
       toast.error("There was an error creating the issue.");
@@ -925,7 +912,7 @@ export default function CreateIssue() {
             </button>
             <span className="px-2">≡</span>
             <div>
-              <div className="font-bold">Create an Issue</div>
+              <div className="font-bold">Raise an Issue</div>
             </div>
           </div>
 
@@ -945,32 +932,39 @@ export default function CreateIssue() {
           <div className="grid grid-cols-2 gap-4">
             {/* Left Column */}
             <div className="space-y-2">
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Project</label>
-                <div className="w-64">
-                  <SearchableField
-                    name="project"
-                    value={formData.project}
-                    onChange={handleChange}
-                    options={
-                      formData.requestor &&
-                      projectsPerRequestor[
-                        formData.requestor
-                      ] /* Filter projects based on requestor if applicable */
-                        ? projectsPerRequestor[formData.requestor]
-                        : projectList
-                    }
-                    placeholder="Select project..."
-                    error={formErrors.project}
+              <div className="flex items-center ">
+                <label className="w-44 text-gray-600">Service Domain</label>
+                <div>
+                  <label className="w-44 text-gray-600">:</label>
+                  <input
+                    // type="text"
+                    name="serviceDomain"
+                    value={formData.serviceDomainObj?.title || ""}
+                    readOnly
+                    className={` rounded px-2 py-1 w-64 cursor-not-allowed outline-none `}
                   />
                 </div>
-                {formErrors.project && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
-                )}
               </div>
-
               <div className="flex items-center">
-                <label className="w-44 text-gray-600">Requestor</label>
+                <label className="w-44 text-gray-600">Service Type</label>
+                <div>
+                  <label className="w-44 text-gray-600">:</label>
+                  <input
+                    type="text"
+                    name="serviceType"
+                    value={formData.serviceTypeObj?.title || ""}
+                    readOnly
+                    className={` rounded px-2 py-1 w-64 cursor-not-allowed outline-none  `}
+                  />
+                </div>
+              </div>
+              {/* <div className="flex items-center">
+                <label className="w-44 text-gray-600">
+                  {formData.requestor === userProfile?.username
+                    ? "Requestor"
+                    : "On Behalf"}
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <div className="w-64">
                   <SearchableField
                     name="requestor"
@@ -982,155 +976,39 @@ export default function CreateIssue() {
                   />
                 </div>
                 {formErrors.requestor && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
+                  <p className="text-red-500">{formErrors.requestor}</p>
                 )}
-              </div>
-              <div className="flex items-center ">
-                <label className="w-44 text-gray-600">Service Domain</label>
-                <input
-                  // type="text"
-                  name="serviceDomain"
-                  value={formData.serviceDomainObj?.title || ""}
-                  readOnly
-                  className={`bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  ${
-                    formErrors.product ? "border-red-500" : ""
-                  }`}
-                />
-                {formErrors.serviceDomain && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
-                )}
-              </div>
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Service Type</label>
-                <input
-                  type="text"
-                  name="serviceType"
-                  value={formData.serviceTypeObj?.title || ""}
-                  readOnly
-                  className={` bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  ${
-                    formErrors.product ? "border-red-500" : ""
-                  }`}
-                />
-                {formErrors.serviceType && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
-                )}
-              </div>
-
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Reference Ticket</label>
-                <div className="w-64">
-                  <ReferenceTicketSelector
-                    value={formData.referenceTicket}
-                    onChange={handleChange}
-                    isOptional
-                    className="text-xs p-1 border rounded w-64"
-                  />
-                </div>
-              </div>
-
-              {/* <div className="flex items-center">
-                  <label className="w-44 text-gray-600">Contact Mode</label>
-                  <select 
-                    name="contactMode"
-                    value={formData.contactMode}
-                    onChange={handleChange}
-                    className={`border rounded px-2 py-1 w-64 ${formErrors.contactMode ? 'border-red-500' : ''}`}
-                  >
-                    <option value="">-- Select --</option>
-                 
-                  </select>
-                  {formErrors.contactMode && <span className="text-red-500 text-xs ml-1">*</span>}
-                </div> */}
-
-              {/* {formData.contactMode === "phone" && (
-                  <div className="flex items-center">
-                    <label className="w-44 text-gray-600">Contact Number</label>
-                    <input 
-                      type="text" 
-                      name="contactNumber"
-                      value={formData.contactNumber}
+              </div> */}
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center">
+                  <label className="w-44 text-gray-600">
+                    {formData.requestor === userProfile?.username
+                      ? "Requestor"
+                      : "On Behalf"}
+                    <span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <div className="w-64">
+                    <SearchableField
+                      name="requestor"
+                      value={formData.requestor}
                       onChange={handleChange}
-                      className="border rounded px-2 py-1 w-64"
+                      options={requestorList}
+                      placeholder="Select requestor..."
+                      error={formErrors.requestor}
                     />
                   </div>
-                )} */}
-
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Impact</label>
-                <select
-                  name="impact"
-                  value={formData.impact}
-                  onChange={handleChange}
-                  onFocus={() => handleFocus("impact")}
-                  onBlur={handleBlur}
-                  className={`border rounded px-2 py-1 w-64 outline-none ${
-                    focusedField === "impact"
-                      ? "ring-2 ring-blue-100 border-blue-600"
-                      : "border-gray-300"
-                  } ${formErrors.impact ? "border-red-500" : ""}`}
-                >
-                  {impactList.map((impact, index) => (
-                    <option key={index} value={impact[0]}>
-                      {impact[1]}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.impact && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
-                )}
-              </div>
-            </div>
-
-            {/* Right Column */}
-            <div className="space-y-2">
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Priority</label>
-                <select
-                  name="priority"
-                  value={formData.priority}
-                  onChange={handleChange}
-                  onFocus={() => handleFocus("priority")}
-                  onBlur={handleBlur}
-                  className={`border rounded px-2 py-1 w-64 outline-none ${
-                    focusedField === "priority"
-                      ? "ring-2 ring-blue-100 border-blue-600"
-                      : "border-gray-300"
-                  } ${formErrors.priority ? "border-red-500" : ""}`}
-                >
-                  {priorityList.map((priority) => (
-                    <option
-                      key={priority.priority_id}
-                      value={priority.priority_id}
-                    >
-                      {priority.urgency_name}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.priority && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
-                )}
-              </div>
-
-              <div className="flex items-center">
-                <label className="w-44 text-gray-600">Product Owner</label>
-                <input
-                  type="text"
-                  name="product"
-                  value={formData.product}
-                  readOnly
-                  className={`bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  ${
-                    formErrors.product ? "border-red-500" : ""
-                  }`}
-                />
-                {formErrors.product && (
-                  <span className="text-red-500 text-xs ml-1">*</span>
+                </div>
+                {formErrors.requestor && (
+                  <p className="text-red-500 text-sm ml-44">
+                    {formErrors.requestor}
+                  </p>
                 )}
               </div>
 
               <div className="flex items-center">
                 <label className="w-44 text-gray-600">Assignee</label>
                 <div className="w-64">
-                  <select
+                  {/* <select
                     name="assignmentType"
                     value={formData.assignmentType}
                     onFocus={() => handleFocus("assignmentType")}
@@ -1160,74 +1038,252 @@ export default function CreateIssue() {
                   >
                     <option value="automatic">Automatic Assignment</option>
                     <option value="manual">Manual Assignment</option>
-                  </select>
+                  </select> */}
 
-                  {formData.assignmentType === "manual" && (
-                    <SearchableField
-                      name="assignee"
-                      value={formData.assignee}
-                      onChange={handleChange}
-                      options={activeUsersList.map((user) => user.username)}
-                      placeholder="Search assignee..."
-                      error={formErrors.assignee}
-                    />
-                  )}
+                  {/* {formData.assignmentType === "manual" && ( */}
+                  <SearchableField
+                    name="assignee"
+                    value={formData.assignee}
+                    onChange={handleChange}
+                    options={activeUsersList.map((user) => user.username)}
+                    placeholder="Search assignee..."
+                    error={formErrors.assignee}
+                  />
+                  {/* )} */}
                 </div>
-                {formErrors.assignee &&
-                  formData.assignmentType === "manual" && (
-                    <span className="text-red-500 text-xs ml-1">*</span>
-                  )}
               </div>
-              {formData.assignmentType === "manual" && (
-                <>
+              {/* {formData.assignmentType === "manual" && (
+                <> */}
+              <div className="flex items-center">
+                <label className="w-44 text-gray-600">Solution Group</label>
+                <select
+                  name="solutionGroup"
+                  value={formData.solutionGroup}
+                  onChange={handleChange}
+                  onFocus={() => handleFocus("solutionGroup")}
+                  onBlur={handleBlur}
+                  className={`border rounded px-2 py-1 w-64 outline-none ${
+                    focusedField === "solutionGroup"
+                      ? "ring-2 ring-blue-100 border-blue-600"
+                      : "border-gray-300"
+                  } `}
+                >
+                  <option value="">-- Select --</option>
+                  {solutionGroupList.map((group) => (
+                    <option key={group.group_name} value={group.group_name}>
+                      {group.group_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center">
+                <label className="w-44 text-gray-600">Support Vendor</label>
+                <input
+                  type="text"
+                  name="Organization"
+                  value={formData.developerOrganization}
+                  readOnly
+                  className={`bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  `}
+                />
+              </div>
+              {/* </>
+              )} */}
+
+              {/* <div className="flex items-center">
+                  <label className="w-44 text-gray-600">Contact Mode</label>
+                  <select 
+                    name="contactMode"
+                    value={formData.contactMode}
+                    onChange={handleChange}
+                    className={`border rounded px-2 py-1 w-64 `}
+                  >
+                    <option value="">-- Select --</option>
+                 
+                  </select>
+                  {formErrors.contactMode && <span className="text-red-500 text-xs ml-1">*</span>}
+                </div> */}
+
+              {/* {formData.contactMode === "phone" && (
                   <div className="flex items-center">
-                    <label className="w-44 text-gray-600">Solution Group</label>
-                    <select
-                      name="solutionGroup"
-                      value={formData.solutionGroup}
+                    <label className="w-44 text-gray-600">Contact Number</label>
+                    <input 
+                      type="text" 
+                      name="contactNumber"
+                      value={formData.contactNumber}
                       onChange={handleChange}
-                      onFocus={() => handleFocus("solutionGroup")}
-                      onBlur={handleBlur}
-                      className={`border rounded px-2 py-1 w-64 outline-none ${
-                        focusedField === "solutionGroup"
-                          ? "ring-2 ring-blue-100 border-blue-600"
-                          : "border-gray-300"
-                      } ${formErrors.solutionGroup ? "border-red-500" : ""}`}
-                    >
-                      <option value="">-- Select --</option>
-                      {solutionGroupList.map((group) => (
-                        <option key={group.group_name} value={group.group_name}>
-                          {group.group_name}
-                        </option>
-                      ))}
-                    </select>
-                    {formErrors.solutionGroup && (
-                      <span className="text-red-500 text-xs ml-1">*</span>
-                    )}
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-44 text-gray-600">Organization</label>
-                    <input
-                      type="text"
-                      name="Organization"
-                      value={formData.developerOrganization}
-                      readOnly
-                      className={`bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  ${
-                        formErrors.product ? "border-red-500" : ""
-                      }`}
+                      className="border rounded px-2 py-1 w-64"
                     />
-                    {formErrors.product && (
-                      <span className="text-red-500 text-xs ml-1">*</span>
-                    )}
                   </div>
-                </>
-              )}
+                )} */}
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-2">
+              {/* <div className="flex items-center">
+                <label className="w-44 text-gray-600">
+                  Impact <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="impact"
+                  value={formData.impact}
+                  onChange={handleChange}
+                  onFocus={() => handleFocus("impact")}
+                  onBlur={handleBlur}
+                  className={`border rounded px-2 py-1 w-64 outline-none ${
+                    focusedField === "impact"
+                      ? "ring-2 ring-blue-100 border-blue-600"
+                      : "border-gray-300"
+                  } `}
+                >
+                  {impactList.map((impact, index) => (
+                    <option key={index} value={impact[0]}>
+                      {impact[1]}
+                    </option>
+                  ))}
+                </select>
+              </div> */}
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center">
+                  <label className="w-44 text-gray-600">
+                    Impact <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="impact"
+                    value={formData.impact}
+                    onChange={handleChange}
+                    onFocus={() => handleFocus("impact")}
+                    onBlur={handleBlur}
+                    className={`border rounded px-2 py-1 w-64 outline-none ${
+                      focusedField === "impact"
+                        ? "ring-2 ring-blue-100 border-blue-600"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {impactList.map((impact, index) => (
+                      <option key={index} value={impact[0]}>
+                        {impact[1]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {formErrors.impact && (
+                  <p className="text-red-500 text-xs ml-44">
+                    {formErrors.impact}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center">
+                  <label className="w-44 text-gray-600">
+                    Priority <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="priority"
+                    value={formData.priority}
+                    onChange={handleChange}
+                    onFocus={() => handleFocus("priority")}
+                    onBlur={handleBlur}
+                    className={`border rounded px-2 py-1 w-64 outline-none ${
+                      focusedField === "priority"
+                        ? "ring-2 ring-blue-100 border-blue-600"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {priorityList.map((priority) => (
+                      <option
+                        key={priority.priority_id}
+                        value={priority.priority_id}
+                      >
+                        {priority.urgency_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {formErrors.priority && (
+                  <p className="text-red-500 text-xs ml-44">
+                    {formErrors.priority}
+                  </p>
+                )}
+              </div>
+
+              {/* <div className="flex items-center">
+                <label className="w-44 text-gray-600">
+                  Priority <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="priority"
+                  value={formData.priority}
+                  onChange={handleChange}
+                  onFocus={() => handleFocus("priority")}
+                  onBlur={handleBlur}
+                  className={`border rounded px-2 py-1 w-64 outline-none ${
+                    focusedField === "priority"
+                      ? "ring-2 ring-blue-100 border-blue-600"
+                      : "border-gray-300"
+                  } `}
+                >
+                  {priorityList.map((priority) => (
+                    <option
+                      key={priority.priority_id}
+                      value={priority.priority_id}
+                    >
+                      {priority.urgency_name}
+                    </option>
+                  ))}
+                </select>
+              </div> */}
+              <div className="flex items-center">
+                <label className="w-44 text-gray-600">Project</label>
+                <div className="w-64">
+                  <SearchableField
+                    name="project"
+                    value={formData.project}
+                    onChange={handleChange}
+                    options={
+                      formData.requestor &&
+                      projectsPerRequestor[
+                        formData.requestor
+                      ] /* Filter projects based on requestor if applicable */
+                        ? projectsPerRequestor[formData.requestor]
+                        : projectList
+                    }
+                    placeholder="Select project..."
+                    error={formErrors.project}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center">
+                <label className="w-44 text-gray-600">Project Owner</label>
+                <input
+                  type="text"
+                  name="product"
+                  value={formData.product}
+                  readOnly
+                  className={`bg-gray-100 border rounded px-2 py-1 w-64 cursor-not-allowed outline-none  `}
+                />
+              </div>
+              {/* <div className="flex items-center">
+                <label className="w-44 text-gray-600">Reference Ticket</label>
+                <div className="w-64">
+                  <ReferenceTicketSelector
+                    value={formData.referenceTicket}
+                    onChange={handleChange}
+                    isOptional
+                    className="text-xs p-1 border rounded w-64"
+                  />
+                </div>
+              </div> */}
             </div>
           </div>
 
           <div className="mt-4 space-y-2">
-            <div className="flex items-center">
-              <label className="w-44 text-gray-600">Summary</label>
+            {/* <div className="">
+              <div className="flex items-center">
+
+              
+              <label className="w-44 text-gray-600">
+                Summary <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 name="summary"
@@ -1239,14 +1295,45 @@ export default function CreateIssue() {
                   focusedField === "summary"
                     ? "ring-2 ring-blue-100 border-blue-600"
                     : "border-gray-300"
-                } ${formErrors.summary ? "border-red-500" : ""}`}
+                }`}
               />
+              </div>
+              <div>
+                {formErrors.summary && (
+                  <p className="text-red-500 text-sm">{formErrors.summary}</p>
+                )}
+              </div>
+            </div> */}
+            <div className="flex items-start flex-col w-full space-y-1">
+              <div className="flex w-full items-center">
+                <label className="w-44 text-gray-600">
+                  Summary <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="summary"
+                  value={formData.summary}
+                  onChange={handleChange}
+                  onFocus={() => handleFocus("summary")}
+                  onBlur={handleBlur}
+                  className={`border w-[71.6%] rounded px-2 py-1 outline-none ${
+                    focusedField === "summary"
+                      ? "ring-2 ring-blue-100 border-blue-600"
+                      : "border-gray-300"
+                  }`}
+                />
+              </div>
               {formErrors.summary && (
-                <span className="text-red-500 text-xs ml-1">*</span>
+                <p className="text-red-500 text-xs ml-44">
+                  {formErrors.summary}
+                </p>
               )}
             </div>
-            <div className="flex items-center mt-4">
-              <label className="w-44 text-gray-600">Description</label>
+
+            {/* <div className="flex items-center mt-4">
+              <label className="w-44 text-gray-600">
+                Describe Your Isssue <span className="text-red-500">*</span>
+              </label>
               <div className="w-[71.6%]">
                 {!expandEditor ? (
                   <input
@@ -1264,9 +1351,7 @@ export default function CreateIssue() {
                         },
                       })
                     }
-                    className={`border w-full rounded px-2 py-1 outline-none  ${
-                      formErrors.description ? "border-red-500" : ""
-                    }`}
+                    className={`border w-full rounded px-2 py-1 outline-none`}
                     placeholder="Describe your issue here..."
                   />
                 ) : (
@@ -1281,9 +1366,49 @@ export default function CreateIssue() {
                   />
                 )}
               </div>
-
+            </div> */}
+            <div className="flex flex-col mt-4 space-y-1">
+              <div className="flex items-start">
+                <label className="w-44 text-gray-600">
+                  Describe Your Issue <span className="text-red-500">*</span>
+                </label>
+                <div className="w-[71.6%]">
+                  {!expandEditor ? (
+                    <input
+                      type="text"
+                      name="description"
+                      value={formData.description}
+                      onFocus={() => {
+                        setExpandEditor(true);
+                      }}
+                      onChange={(e) =>
+                        handleChange({
+                          target: {
+                            name: "description",
+                            value: e.target.value,
+                          },
+                        })
+                      }
+                      className="border w-full rounded px-2 py-1 outline-none"
+                      placeholder="Describe your issue here..."
+                    />
+                  ) : (
+                    <QuillTextEditor
+                      name="description"
+                      value={formData.description}
+                      onChange={handleChange}
+                      onFocus={() => handleFocus("description")}
+                      onBlur={handleBlur}
+                      // error={formErrors.description}
+                      className="bg-white"
+                    />
+                  )}
+                </div>
+              </div>
               {formErrors.description && (
-                <span className="text-red-500 text-xs ml-1">*</span>
+                <p className="text-red-500 text-xs ml-44">
+                  {formErrors.description}
+                </p>
               )}
             </div>
 

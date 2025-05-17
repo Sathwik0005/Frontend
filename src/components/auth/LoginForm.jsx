@@ -51,7 +51,7 @@ const LoginForm = () => {
 
     setIsLoading(true);
 
-    // Prepare login data with trimmed values
+    // Prepare login data   th trimmed values
     const loginData = {
       email: email.trim(),
       password: password.trim(),
